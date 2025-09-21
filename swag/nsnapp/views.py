@@ -79,7 +79,7 @@ def save_data():
                         
                         if project["key"] == issue_key:
                             cleaned_data.append(clean_data(project, issue))
-
+            project_collections.drop()
             project_collections.insert_many(cleaned_data)
         elif isinstance(project_data, dict) and isinstance(issues_data, dict):
             cleaned_project_data = clean_data(project_data, issues_data)
