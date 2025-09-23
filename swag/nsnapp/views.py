@@ -86,7 +86,6 @@ def save_data(request):
                             
                             if project["key"] == issue_key:
                                 cleaned_data.append(clean_data(project, issue))
-                                #print(cleaned_data)
                 if project_collections.name in project_collections.database.list_collection_names():
                     project_collections.drop()
                 project_collections.insert_many(cleaned_data)
@@ -157,5 +156,40 @@ def get_project_by_author(author_name):
         }
     })
     finded_projects = list(results)
-
     return finded_projects
+
+def filther_data(data, author):
+    for issue in data["issues"]:
+        issue["author_logs"] = [
+            log for log in issue["author_logs"]
+            if log["display_name"] == author
+        ]
+    
+    return data
+
+@csrf_exempt
+def get_project_per_author(request):
+    if request.method == "POST":
+        try:
+            list_return = []
+            data = json.loads(request.body)
+
+            if isinstance(data, list):
+                data = data[0]
+            
+            author = data.get("author")
+
+            if not author:
+                return JsonResponse({"error": "Necessário ter 'author' na chave."}, status=400)
+            
+            results = get_project_by_author(author)
+            results = convert_objectid_to_str(results)
+
+            for result in results:
+                list_return.append(filther_data(result, author))
+
+            return JsonResponse(list_return, safe=False)
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "JSON inválido"}, status=400)
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=500)
