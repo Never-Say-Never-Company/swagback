@@ -16,10 +16,11 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
-from nsnapp.views import save_data, get_project_per_period
+from nsnapp.views import save_data, get_project_per_period, get_project_per_author
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('project/save_project', save_data),
-    path('project/project_per_period', get_project_per_period)
+    path('project/project_per_period', get_project_per_period),
+    path('project/project_per_author', get_project_per_author)
 ]
