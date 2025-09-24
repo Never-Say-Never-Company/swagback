@@ -1,13 +1,16 @@
-FROM python:3.10-slim
+# Use uma imagem base do Python
+FROM python:3.10
 
-WORKDIR /SWAGBACK/swag
+# Defina a variável de ambiente para que o Python não grave .pyc no disco
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
 
-COPY requirements.txt .
+# Defina o diretório de trabalho
+WORKDIR /code
 
-RUN pip install --no-cache-dir -r requirements.txt
+# Copie o arquivo de requisitos e instale as dependências
+COPY requirements.txt /code/
+RUN pip install -r requirements.txt
 
+# Copie todo o código da aplicação
 COPY . .
-
-EXPOSE 8000
-
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
