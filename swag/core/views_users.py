@@ -8,12 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 @csrf_exempt
 def get_users(request):
-    """
-    Esta view recebe uma requisição POST com dados de autenticação no corpo,
-    faz a requisição para a API do Jira, salva os dados no MongoDB,
-    e retorna a lista de usuários como uma resposta JSON.
-    """
-    
+
     if request.method != 'POST':
         return JsonResponse({"error": "Método não permitido. Por favor, use POST."}, status=405)
 
@@ -76,3 +71,51 @@ def get_users(request):
 
     users = list(users_collection.find({}, {"_id": 0}))
     return JsonResponse(users, safe=False)
+
+def list_users(request):
+    if request.method != 'GET':
+        return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
+    
+    try:
+        MONGO_URI = config("MONGO_URI", "mongodb://db:27017/")
+        client = MongoClient(MONGO_URI)
+        db = client["swag"]
+
+        filters = {}
+
+        account_id = request.GET.get('accountId')
+        if account_id:
+            filters['accountId'] = account_id
+
+        display_name = request.GET.get('displayName')
+        if display_name:
+            filters['displayName'] = {'$regex': display_name, '$options': 'i'}
+
+
+        users_collection = db["users"]
+        users = list(users_collection.find(filters, {"_id": 0, "accountId": 1, "displayName": 1}))
+        
+        return JsonResponse(users, safe=False)
+    
+    except Exception as e:
+        return JsonResponse({"error": f"Falha ao acessar os usuários: {e}"}, status=500)
+
+def list_user_by_Id(request, accountId):
+    if request.method != 'GET':
+        return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
+    
+    try:
+        MONGO_URI = config("MONGO_URI", "mongodb://db:27017/")
+        client = MongoClient(MONGO_URI)
+        db = client["swag"]
+
+        users_collection = db["users"]
+        user = users_collection.find_one({"accountId": accountId}, {"_id": 0,  "accountId": 1, "displayName": 1})
+
+        if user:
+            return JsonResponse(user, safe=False)
+        else:
+            return JsonResponse({"error": "Usuário não encontrado."}, status=404)
+        
+    except Exception as e:
+        return JsonResponse({"error": f"Falha ao acessar o usuário: {e}"}, status=500)

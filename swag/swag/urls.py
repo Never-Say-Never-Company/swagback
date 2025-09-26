@@ -16,9 +16,11 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
-from core.views_users import get_users
+from core.views_users import get_users, list_users, list_user_by_Id
 
 urlpatterns = [
-      path('users/', get_users, name='get_users'),
+      path('jira/users/', get_users, name='get_users'),
+      path('users/', list_users, name='list_users'),
+      path('users/<str:accountId>/', list_user_by_Id, name='list_user_by_accountId')
 
 ]
