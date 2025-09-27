@@ -5,13 +5,9 @@ services:
     image: mongo:latest
     container_name: mongodb
     ports:
-      - "27018:27017"  # host:container
+      - "27018:27017"
     volumes:
       - mongodb_data:/data/db
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: vinicius
-      MONGO_INITDB_ROOT_PASSWORD: senha123
-      MONGO_INITDB_DATABASE: swag
 
   web:
     build: .
