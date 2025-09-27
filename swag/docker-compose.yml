@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  db:
+    image: mongo:latest
+    container_name: mongodb
+    ports:
+      - "27018:27017"  # host:container
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: vinicius
+      MONGO_INITDB_ROOT_PASSWORD: senha123
+      MONGO_INITDB_DATABASE: swag
+
+  web:
+    build: .
+    container_name: django_web
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/code
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    env_file:
+      - .env
+
+volumes:
+  mongodb_data:
