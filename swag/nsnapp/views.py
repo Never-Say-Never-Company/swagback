@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from nsnapp.utils import convert_objectid_to_str
 import requests
 import json
+import os
 
 API_URL_PROJECT = config("JIRA_URL_PROJECT")
 API_URL_ISSUES = config("JIRA_URL_ISSUES")
@@ -19,25 +20,32 @@ client = MongoClient(MONGO_PATH)
 db = client["swag"]
 project_collections = db["projects_per_hours"]
 
-def get_api_data_project():
+def get_api_data_project(user_name, token):
     response = requests.get(
             f"{API_URL_PROJECT}",
-            auth=HTTPBasicAuth(API_USER_NAME, API_TOKEN)
+            auth=HTTPBasicAuth(user_name, token)
         )
     response.raise_for_status()
     return response.json()
 
 def get_api_data_issues():
     params = {
-        "jql": "project IN (SE,SM2)",
-        "fields": "worklog",
+        "jql": "project IN (SE, SM2)",
+        "fields": ["worklog", "key"],
         "maxResults": 100
     }
+    
+    headers = {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+        'Cookie': os.getenv('JIRA_COOKIE'),
+    }
 
-    response = requests.get(
+    response = requests.post(
             API_URL_ISSUES,
-            auth=HTTPBasicAuth(API_USER_NAME, API_TOKEN),
-            params=params
+            headers=headers,
+            auth=(API_USER_NAME, API_TOKEN),
+            json=params
         )
     response.raise_for_status()
     return response.json()
@@ -70,7 +78,16 @@ def clean_data(project, issue):
 @csrf_exempt
 def save_data(request):
     if request.method == "POST":
-        project_data = get_api_data_project()
+        data = json.loads(request.body)
+        print("retorno", data)
+
+        if data is None:
+            return JsonResponse({"error": "Dados inválidos"}, status=400)
+
+        user_name = data.get("user_name")
+        token = data.get("token")
+
+        project_data = get_api_data_project(user_name, token)
         issues_data = get_api_data_issues()
         issues_list = issues_data.get("issues", [])
 
