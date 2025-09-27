@@ -31,8 +31,7 @@ def get_api_data_project(user_name, token):
 def get_api_data_issues():
     params = {
         "jql": "project IN (SE, SM2)",
-        "fields": ["worklog", "key"],
-        "maxResults": 100
+        "fields": ["worklog", "key"]
     }
     
     headers = {
