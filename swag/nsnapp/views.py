@@ -78,7 +78,6 @@ def clean_data(project, issue):
 def save_data(request):
     if request.method == "POST":
         data = json.loads(request.body)
-        print("retorno", data)
 
         if data is None:
             return JsonResponse({"error": "Dados inválidos"}, status=400)
