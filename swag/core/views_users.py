@@ -6,79 +6,66 @@ from requests.auth import HTTPBasicAuth
 from decouple import config
 from django.views.decorators.csrf import csrf_exempt
 
-@csrf_exempt
-def get_users(request):
+JIRA_URL_USERS = config("JIRA_URL_USERS")
+MONGO_PATH = config("MONGO_PATH")
+client = MongoClient(MONGO_PATH)
+db = client["swag"]
+users_collection = db["users"]
 
-    if request.method != 'POST':
-        return JsonResponse({"error": "Método não permitido. Por favor, use POST."}, status=405)
-
-    try:
-        data = json.loads(request.body)
-        jira_username = data.get("username")
-        jira_api_token = data.get("token")
-        
-        if not jira_username or not jira_api_token:
-            return JsonResponse({"error": "Por favor, forneça o 'username' e o 'token' no corpo da requisição."}, status=400)
-
-        JIRA_URL_USERS = config("JIRA_URL", "https://necto.atlassian.net/rest/api/3/users/search")
-        MONGO_URI = config("MONGO_URI", "mongodb://db:27017/")
-
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "Corpo da requisição inválido. Deve ser um JSON."}, status=400)
-    except Exception as e:
-        return JsonResponse({"error": f"Erro na configuração ou no corpo da requisição: {e}"}, status=500)
-
-    try:
-        client = MongoClient(MONGO_URI)
-        db = client["swag"]
-        users_collection = db["users"]
-    except Exception as e:
-        return JsonResponse({"error": f"Falha na conexão com o MongoDB: {e}"}, status=500)
-
-    def get_api_data_users():
+def get_api_data_users(user_name, token):
         response = requests.get(
-            JIRA_URL_USERS,
-            auth=HTTPBasicAuth(jira_username, jira_api_token)
+            f"{JIRA_URL_USERS}",
+            auth=HTTPBasicAuth(user_name, token)
         )
         response.raise_for_status()
         return response.json()
 
-    def clean_user_data(user):
-        return {
-            "accountId": user.get("accountId"),
-            "displayName": user.get("displayName"),
-            "accountType": user.get("accountType"),
-            "avatarUrls": user.get("avatarUrls", {}),
-            "active": user.get("active"),
-            "timeZone": user.get("timeZone"),
-            "locale": user.get("locale")
-        }
+@csrf_exempt
+def get_users(request):
+    if request.method != 'POST':
+        return JsonResponse(
+            {"error": "Método não permitido. Por favor, use POST."}, 
+            status=405
+        )
 
     try:
-        users_data = get_api_data_users()
-        if isinstance(users_data, list):
-            cleaned_data = [clean_user_data(u) for u in users_data]
-            users_collection.drop()
-            users_collection.insert_many(cleaned_data)
-        elif isinstance(users_data, dict):
-            cleaned_data = clean_user_data(users_data)
-            users_collection.drop()
-            users_collection.insert_one(cleaned_data)
-    except requests.exceptions.RequestException as e:
-        return JsonResponse({"error": f"Falha na requisição para a API do Jira: {e}"}, status=500)
-    except Exception as e:
-        return JsonResponse({"error": f"Ocorreu um erro inesperado durante o salvamento: {e}"}, status=500)
+        data = json.loads(request.body)
+    except Exception:
+        return JsonResponse({"error": "JSON inválido"}, status=400)
 
-    users = list(users_collection.find({}, {"_id": 0}))
-    return JsonResponse(users, safe=False)
+    user_name = data.get("user_name")
+    token = data.get("token")
+
+    if not user_name or not token:
+        return JsonResponse(
+            {"error": "Campos 'user_name' e 'token' são obrigatórios."}, 
+            status=400
+        )
+
+    try:
+        users_data = get_api_data_users(user_name, token)
+
+        users_collection.delete_many({})
+
+        if users_data:
+            users_collection.insert_many(users_data)
+
+        return JsonResponse(
+            {"message": "Usuários salvos com sucesso!"}, status=200
+        )
+
+    except requests.exceptions.RequestException as e:
+        return JsonResponse({"error": f"Erro ao acessar API Jira: {str(e)}"}, status=500)
+    except Exception as e:
+        return JsonResponse({"error": f"Ocorreu um erro inesperado: {str(e)}"}, status=500)
+
 
 def list_users(request):
     if request.method != 'GET':
         return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
     
     try:
-        MONGO_URI = config("MONGO_URI", "mongodb://db:27017/")
-        client = MongoClient(MONGO_URI)
+        client = MongoClient(MONGO_PATH)
         db = client["swag"]
 
         filters = {}
@@ -105,8 +92,7 @@ def list_user_by_Id(request, accountId):
         return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
     
     try:
-        MONGO_URI = config("MONGO_URI", "mongodb://db:27017/")
-        client = MongoClient(MONGO_URI)
+        client = MongoClient(MONGO_PATH)
         db = client["swag"]
 
         users_collection = db["users"]
