@@ -12,6 +12,7 @@ import os
 
 API_URL_PROJECT = config("JIRA_URL_PROJECT")
 API_URL_ISSUES = config("JIRA_URL_ISSUES")
+JIRA_URL_USERS = config("JIRA_URL_USERS")
 API_USER_NAME = config("JIRA_USER_NAME")
 API_TOKEN = config("JIRA_TOKEN")
 MONGO_PATH = config("MONGO_PATH")
@@ -19,11 +20,12 @@ MONGO_PATH = config("MONGO_PATH")
 client = MongoClient(MONGO_PATH)
 db = client["swag"]
 project_collections = db["projects_per_hours"]
+users_collection = db["users"]
 
 def get_api_data_project(user_name, token):
     response = requests.get(
             f"{API_URL_PROJECT}",
-            auth=HTTPBasicAuth(user_name, token)
+            auth=HTTPBasicAuth(user_name, token),
         )
     response.raise_for_status()
     return response.json()
@@ -39,6 +41,7 @@ def get_api_data_issues():
         'Content-Type': 'application/json',
         'Cookie': os.getenv('JIRA_COOKIE'),
     }
+    
 
     response = requests.post(
             API_URL_ISSUES,
@@ -74,6 +77,15 @@ def clean_data(project, issue):
         ]
     }
 
+def get_api_data_users(user_name, token):
+        response = requests.get(
+            f"{JIRA_URL_USERS}",
+            auth=HTTPBasicAuth(user_name, token)
+        )
+        response.raise_for_status()
+        return response.json()
+
+
 @csrf_exempt
 def save_data(request):
     if request.method == "POST":
@@ -85,9 +97,11 @@ def save_data(request):
         user_name = data.get("user_name")
         token = data.get("token")
 
+        save_users(user_name, token)
         project_data = get_api_data_project(user_name, token)
         issues_data = get_api_data_issues()
         issues_list = issues_data.get("issues", [])
+
 
         try:
             if isinstance(project_data, list) and isinstance(issues_list, list):
@@ -208,3 +222,66 @@ def get_project_per_author(request):
             return JsonResponse({"error": "JSON inválido"}, status=400)
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
+        
+
+def save_users(user_name, token):
+
+    try:
+        users_data = get_api_data_users(user_name, token)
+
+        users_collection.delete_many({})
+
+        if users_data:
+            users_collection.insert_many(users_data)
+
+    except requests.exceptions.RequestException as e:
+        return JsonResponse({"error": f"Erro ao acessar API Jira: {str(e)}"}, status=500)
+    except Exception as e:
+        return JsonResponse({"error": f"Ocorreu um erro inesperado: {str(e)}"}, status=500)
+
+
+def list_users(request):
+    if request.method != 'GET':
+        return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
+
+    try:
+        client = MongoClient(MONGO_PATH)
+        db = client["swag"]
+
+        filters = {}
+
+        account_id = request.GET.get('accountId')
+        if account_id:
+            filters['accountId'] = account_id
+
+        display_name = request.GET.get('displayName')
+        if display_name:
+            filters['displayName'] = {'$regex': display_name, '$options': 'i'}
+
+
+        users_collection = db["users"]
+        users = list(users_collection.find(filters, {"_id": 0, "accountId": 1, "displayName": 1}))
+
+        return JsonResponse(users, safe=False)
+
+    except Exception as e:
+        return JsonResponse({"error": f"Falha ao acessar os usuários: {e}"}, status=500)
+
+def list_user_by_Id(request, accountId):
+    if request.method != 'GET':
+        return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
+
+    try:
+        client = MongoClient(MONGO_PATH)
+        db = client["swag"]
+
+        users_collection = db["users"]
+        user = users_collection.find_one({"accountId": accountId}, {"_id": 0,  "accountId": 1, "displayName": 1})
+
+        if user:
+            return JsonResponse(user, safe=False)
+        else:
+            return JsonResponse({"error": "Usuário não encontrado."}, status=404)
+
+    except Exception as e:
+        return JsonResponse({"error": f"Falha ao acessar o usuário: {e}"}, status=500)
