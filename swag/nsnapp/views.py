@@ -10,6 +10,7 @@ import requests
 import json
 import copy
 import os
+import re
 
 API_URL_PROJECT = config("JIRA_URL_PROJECT")
 API_URL_ISSUES = config("JIRA_URL_ISSUES")
@@ -23,6 +24,26 @@ db = client["swag"]
 project_collections = db["projects_per_hours"]
 users_collection = db["users"]
 
+def convert_time_to_minutes(time_str):
+    """Converte uma string de tempo (ex: '3h 26m', '1h', '30m') para o total de minutos."""
+    if not time_str:
+        return 0
+    total_minutes = 0
+    
+    hours_match = re.search(r'(\d+)\s*h', time_str)
+    if hours_match:
+        total_minutes += int(hours_match.group(1)) * 60
+        
+    minutes_match = re.search(r'(\d+)\s*m', time_str)
+    if minutes_match:
+        total_minutes += int(minutes_match.group(1))
+        
+    return total_minutes
+
+def extract_account_ids(authors_list):
+    """Extrai uma lista de strings de account_id da lista de dicionários de autores."""
+    return [author['account_id'] for author in authors_list if isinstance(author, dict) and author.get('account_id')]
+
 def get_api_data_project(user_name, token):
     response = requests.get(
             f"{API_URL_PROJECT}",
@@ -34,7 +55,8 @@ def get_api_data_project(user_name, token):
 def get_api_data_issues():
     params = {
         "jql": "project IN (SE, SM2)",
-        "fields": ["worklog", "key"]
+        "fields": ["worklog", "key"],
+        "maxResults": 1000
     }
     
     headers = {
@@ -80,13 +102,18 @@ def clean_data(project, issue):
     }
 
 def get_api_data_users(user_name, token):
-        response = requests.get(
-            f"{JIRA_URL_USERS}",
-            auth=HTTPBasicAuth(user_name, token)
-        )
-        response.raise_for_status()
-        return response.json()
-
+    params = {
+        "maxResults": 1000,
+        "orderBy": "displayName"
+    }
+    
+    response = requests.get(
+        f"{JIRA_URL_USERS}",
+        auth=HTTPBasicAuth(user_name, token),
+        params=params 
+    )
+    response.raise_for_status()
+    return response.json()
 
 @csrf_exempt
 def save_data(request):
@@ -103,7 +130,6 @@ def save_data(request):
         project_data = get_api_data_project(user_name, token)
         issues_data = get_api_data_issues()
         issues_list = issues_data.get("issues", [])
-
 
         try:
             if isinstance(project_data, list) and isinstance(issues_list, list):
@@ -190,21 +216,6 @@ def get_project_by_author(accountId):
     finded_projects = list(results)
     return finded_projects
 
-def get_project_by_author(accountId):
-    results = project_collections.find({
-        "issues": {
-            "$elemMatch": {
-                "author_logs": {
-                    "$elemMatch": {
-                        "account_id": accountId
-                    }
-                }
-            }
-        }
-    })
-    finded_projects = list(results)
-    return finded_projects
-
 def filter_projects_by_projects_author(projects, account_id):
     filtered = []
 
@@ -264,7 +275,6 @@ def get_project_per_author(request):
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
         
-
 @csrf_exempt
 def get_project_per_period_and_author(request):
     if request.method != "POST":
@@ -279,33 +289,76 @@ def get_project_per_period_and_author(request):
 
         if not begin or not end:
             return JsonResponse({"error": "Necessário ter 'begin' e 'end' nas chaves."}, status=400)
+        
         if not isinstance(authors, list) or not authors:
-            return JsonResponse({"error": "O corpo deve conter uma lista de autores."}, status=400)
+            return JsonResponse({"error": "O corpo deve conter uma lista não vazia de autores."}, status=400)
+
         projects = get_project_by_period(begin, end)
         projects = convert_objectid_to_str(projects)
-        projects_original = copy.deepcopy(projects)
+        projects_original = copy.deepcopy(projects) 
+        selected_author_ids = extract_account_ids(authors)
+        
+        total_team_aggregation = {}
+        selected_people_aggregation = {}
 
-        list_return = []
-
-        for author_item in authors:
-            account_id = author_item.get("account_id")
-            if not account_id:
-                return JsonResponse({"error": "Cada autor deve ter 'account_id'."}, status=400)
-
-            projects_for_author = copy.deepcopy(projects_original)
-            projects_by_author = filter_projects_by_projects_author(projects_for_author, account_id)
-
-            for project in projects_by_author:
-                list_return.append(filther_data(project, account_id))
+        for project in projects_original:
+            project_name = project.get("name")
             
+            if not project_name:
+                continue
 
+            total_team_minutes = 0
+            selected_people_minutes = 0
+            
+            for issue in project.get("issues", []):
+                
+                for log in issue.get("author_logs", []):
+                    account_id = log.get("account_id")
+                    
+                    time_in_minutes = 0
+                    if isinstance(log.get("time_spent_seconds"), int):
+                        time_in_minutes = log["time_spent_seconds"] / 60
+                    else:
+                        time_in_minutes = convert_time_to_minutes(log.get("time_spent"))
+                    
+                    total_team_minutes += time_in_minutes
+                    
+                    if account_id in selected_author_ids:
+                        selected_people_minutes += time_in_minutes
+            
+            if total_team_minutes > 0:
+                total_team_aggregation[project_name] = total_team_aggregation.get(project_name, 0) + total_team_minutes
+
+            if selected_people_minutes > 0:
+                selected_people_aggregation[project_name] = selected_people_aggregation.get(project_name, 0) + selected_people_minutes
+
+        formatted_team_list = []
+        for name, minutes in total_team_aggregation.items():
+            formatted_team_list.append({
+                "nome_projeto": name,
+                "minutos_projeto": round(minutes)
+            })
+
+        formatted_selected_list = []
+        for name, minutes in selected_people_aggregation.items():
+            formatted_selected_list.append({
+                "nome_projeto": name,
+                "minutos_projeto": round(minutes)
+            })
+
+        list_return = {
+            "toda_equipe": formatted_team_list,
+            "pessoas_selecionadas": formatted_selected_list
+        }
+            
         return JsonResponse(list_return, safe=False)
 
     except json.JSONDecodeError:
         return JsonResponse({"error": "JSON inválido"}, status=400)
     except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
-
+        print(f"Erro inesperado em get_project_per_period_and_author: {e}") 
+        return JsonResponse({"error": f"Erro interno no servidor: {e}"}, status=500)
+    
 def save_users(user_name, token):
 
     try:
@@ -321,6 +374,9 @@ def save_users(user_name, token):
     except Exception as e:
         return JsonResponse({"error": f"Ocorreu um erro inesperado: {str(e)}"}, status=500)
 
+
+from django.http import JsonResponse
+from pymongo import MongoClient
 
 def list_users(request):
     if request.method != 'GET':
@@ -342,7 +398,11 @@ def list_users(request):
 
 
         users_collection = db["users"]
-        users = list(users_collection.find(filters, {"_id": 0, "accountId": 1, "displayName": 1}))
+        
+        users = list(
+            users_collection.find(filters, {"_id": 0, "accountId": 1, "displayName": 1})
+            .sort("displayName", 1)
+        )
 
         return JsonResponse(users, safe=False)
 
@@ -368,5 +428,3 @@ def list_user_by_Id(request, accountId):
     except Exception as e:
 
         return JsonResponse({"error": f"Falha ao acessar o usuário: {e}"}, status=500)
-
-
