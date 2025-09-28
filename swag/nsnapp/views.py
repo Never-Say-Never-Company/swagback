@@ -463,3 +463,51 @@ def count_issues_grouped_by_project(request):
             {"error": f"Falha ao contar issues por projeto: {e}"},
             status=500
         )
+
+def count_issues_by_user_and_total_hours(request):
+    if request.method != 'GET':
+        return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
+
+    try:
+        client = MongoClient(MONGO_PATH)
+        db = client["swag"]
+        project_collections = db["projects_per_hours"]
+
+        pipeline = [
+            {
+                "$unwind": "$issues"
+            },
+            {
+                "$unwind": "$issues.author_logs"
+            },
+            {
+                "$group": {
+                    "_id": "$issues.author_logs.display_name",  
+                    "issue_count": { "$sum": 1 },  
+                    "total_time_spent_minutes": {
+                        "$sum": { "$divide": ["$issues.author_logs.time_spent_seconds", 60] }
+                    }  
+                }
+            },
+            {
+                "$sort": {"total_time_spent_minutes": -1}
+            }
+        ]
+
+        results = list(project_collections.aggregate(pipeline))
+
+        formatted = [
+            {"nome": r["_id"], "quantidade_issues": r["issue_count"],"total_horas": round(r["total_time_spent_minutes"], 2)}
+            for r in results
+        ]
+
+        return JsonResponse(formatted, safe=False)
+
+    except Exception as e:
+        return JsonResponse(
+            {"error": f"Falha ao contar issues por projeto: {e}"},
+            status=500
+        )
+               
+        
+        
