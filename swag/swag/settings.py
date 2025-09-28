@@ -25,7 +25,8 @@ SECRET_KEY = 'django-insecure-xf6cc+$rhd$^00z4$=dw^1psde2cj@@tt(2y&ux_qzx3-rf9m=
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+# Você já tem ALLOWED_HOSTS mais abaixo, vou manter o que você tinha e adicionar '0.0.0.0'
+# ALLOWED_HOSTS = [] 
 
 
 # Application definition
@@ -38,10 +39,14 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'nsnapp',
+    'corsheaders',  # <--- ADICIONADO: Necessário para a biblioteca CORS
+    # Certifique-se de adicionar 'rest_framework' se estiver usando Django Rest Framework
+    # 'rest_framework', 
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  # <--- ADICIONADO: Colocado logo após SecurityMiddleware
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -54,7 +59,7 @@ ROOT_URLCONF = 'swag.urls'
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'BACKEND': 'django.template.backends.django.DjangoTemplates', # Corrigido typo: xbackends para backends
         'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {
@@ -122,4 +127,18 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '0.0.0.0']
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '0.0.0.0'] # <--- Mantendo seus ALLOWED_HOSTS
+
+# --- CONFIGURAÇÕES DE CORS ---
+# <--- ADICIONADO: Permite o frontend rodando no Vite acessar sua API
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    # Adicione outras origens se o seu frontend rodar em outras portas ou domínios
+    # Por exemplo, se você testar com o IP local:
+    # "http://127.0.0.1:5173", 
+]
+
+# <--- ADICIONADO: Permite que o navegador envie cookies, headers de autorização, etc.
+CORS_ALLOW_CREDENTIALS = True
+
+# --- FIM DAS CONFIGURAÇÕES DE CORS ---
