@@ -428,3 +428,38 @@ def list_user_by_Id(request, accountId):
     except Exception as e:
 
         return JsonResponse({"error": f"Falha ao acessar o usuário: {e}"}, status=500)
+
+def count_issues_grouped_by_project(request):
+    if request.method != 'GET':
+        return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
+
+    try:
+        client = MongoClient(MONGO_PATH)
+        db = client["swag"]
+        project_collections = db["projects_per_hours"]
+
+        pipeline = [
+            {"$unwind": "$issues"},
+            {
+                "$group": {
+                    "_id": "$key",
+                    "issue_count": {"$sum": 1}
+                }
+            },
+            {"$sort": {"issue_count": -1}}
+        ]
+
+        results = list(project_collections.aggregate(pipeline))
+
+        formatted = [
+            {"projeto": r["_id"], "quantidade_issues": r["issue_count"]}
+            for r in results
+        ]
+
+        return JsonResponse(formatted, safe=False)
+
+    except Exception as e:
+        return JsonResponse(
+            {"error": f"Falha ao contar issues por projeto: {e}"},
+            status=500
+        )
