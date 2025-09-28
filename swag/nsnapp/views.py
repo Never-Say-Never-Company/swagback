@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from nsnapp.utils import convert_objectid_to_str
 import requests
 import json
+import copy
 import os
 
 API_URL_PROJECT = config("JIRA_URL_PROJECT")
@@ -55,6 +56,7 @@ def clean_data(project, issue):
     author_logs = []
     for w in worklogs:
         author_logs.append({
+            "account_id": w.get("author", {}).get("accountId"),
             "display_name": w.get("author", {}).get("displayName"),
             "jira_created_at": datetime.strptime(w.get("created").split(".")[0], "%Y-%m-%dT%H:%M:%S"),
             "time_spent": w.get("timeSpent"),
@@ -86,6 +88,7 @@ def save_data(request):
         token = data.get("token")
 
         project_data = get_api_data_project(user_name, token)
+        print(project_data)
         issues_data = get_api_data_issues()
         issues_list = issues_data.get("issues", [])
 
@@ -101,7 +104,8 @@ def save_data(request):
                             
                             if project["key"] == issue_key:
                                 cleaned_data.append(clean_data(project, issue))
-                if project_collections.name in project_collections.database.list_collection_names():
+                all_collection = project_collections.database.list_collection_names()
+                if project_collections.name in all_collection:
                     project_collections.drop()
                 project_collections.insert_many(cleaned_data)
                 
@@ -158,13 +162,13 @@ def get_project_per_period(request):
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
 
-def get_project_by_author(author_name):
+def get_project_by_author(accountId):
     results = project_collections.find({
         "issues": {
             "$elemMatch": {
                 "author_logs": {
                     "$elemMatch": {
-                        "display_name": author_name
+                        "account_id": accountId
                     }
                 }
             }
@@ -173,11 +177,47 @@ def get_project_by_author(author_name):
     finded_projects = list(results)
     return finded_projects
 
+def get_project_by_author(accountId):
+    results = project_collections.find({
+        "issues": {
+            "$elemMatch": {
+                "author_logs": {
+                    "$elemMatch": {
+                        "account_id": accountId
+                    }
+                }
+            }
+        }
+    })
+    finded_projects = list(results)
+    return finded_projects
+
+def filter_projects_by_projects_author(projects, account_id):
+    filtered = []
+
+    for project in projects:
+        for issue in project.get("issues", []):
+            for author_log in issue.get("author_logs", []):
+                print(author_log.get("display_name"))
+
+        has_author_log = False
+        for issue in project.get("issues", []):
+            filtered_logs = [
+                log for log in issue.get("author_logs", [])
+                if log.get("account_id") == account_id
+            ]
+            if filtered_logs:
+                has_author_log = True
+                issue["author_logs"] = filtered_logs
+        if has_author_log:
+            filtered.append(project)
+    return filtered
+
 def filther_data(data, author):
     for issue in data["issues"]:
         issue["author_logs"] = [
             log for log in issue["author_logs"]
-            if log["display_name"] == author
+            if log["account_id"] == author
         ]
     
     return data
@@ -189,22 +229,69 @@ def get_project_per_author(request):
             list_return = []
             data = json.loads(request.body)
 
-            if isinstance(data, list):
-                data = data[0]
+            if not isinstance(data, list):
+                return JsonResponse({"error": "O corpo deve ser uma lista de autores."}, status=400)
+        
+            for item in data:
+                author = item.get("account_id")
+
+                if not author:
+                    return JsonResponse({"error": "Necessário ter 'author' na chave."}, status=400)
             
-            author = data.get("author")
+                results = get_project_by_author(author)
+                results = convert_objectid_to_str(results)
 
-            if not author:
-                return JsonResponse({"error": "Necessário ter 'author' na chave."}, status=400)
+                for result in results:
+                    list_return.append(filther_data(result, author))
             
-            results = get_project_by_author(author)
-            results = convert_objectid_to_str(results)
-
-            for result in results:
-                list_return.append(filther_data(result, author))
-
+            print(list_return)
             return JsonResponse(list_return, safe=False)
         except json.JSONDecodeError:
             return JsonResponse({"error": "JSON inválido"}, status=400)
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
+        
+@csrf_exempt
+def get_project_per_period_and_author(request):
+    if request.method != "POST":
+        return JsonResponse({"error": "Método não permitido"}, status=405)
+
+    try:
+        data = json.loads(request.body)
+
+        begin = data.get("begin")
+        end = data.get("end")
+        authors = data.get("authors")
+
+        if not begin or not end:
+            return JsonResponse({"error": "Necessário ter 'begin' e 'end' nas chaves."}, status=400)
+        if not isinstance(authors, list) or not authors:
+            return JsonResponse({"error": "O corpo deve conter uma lista de autores."}, status=400)
+
+        # Buscar projetos pelo período
+        projects = get_project_by_period(begin, end)
+        projects = convert_objectid_to_str(projects)
+        projects_original = copy.deepcopy(projects)
+
+        list_return = []
+
+        # Para cada autor, filtrar projetos
+        for author_item in authors:
+            account_id = author_item.get("account_id")
+            if not account_id:
+                return JsonResponse({"error": "Cada autor deve ter 'account_id'."}, status=400)
+
+            projects_for_author = copy.deepcopy(projects_original)
+            projects_by_author = filter_projects_by_projects_author(projects_for_author, account_id)
+
+            for project in projects_by_author:
+                list_return.append(filther_data(project, account_id))
+            
+            print("---------------------acabou aqui-----------------")
+
+        return JsonResponse(list_return, safe=False)
+
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "JSON inválido"}, status=400)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
