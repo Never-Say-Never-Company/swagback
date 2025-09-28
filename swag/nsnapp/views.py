@@ -26,7 +26,7 @@ users_collection = db["users"]
 def get_api_data_project(user_name, token):
     response = requests.get(
             f"{API_URL_PROJECT}",
-            auth=HTTPBasicAuth(user_name, token)
+            auth=HTTPBasicAuth(user_name, token),
         )
     response.raise_for_status()
     return response.json()
@@ -42,6 +42,7 @@ def get_api_data_issues():
         'Content-Type': 'application/json',
         'Cookie': os.getenv('JIRA_COOKIE'),
     }
+    
 
     response = requests.post(
             API_URL_ISSUES,
@@ -98,9 +99,11 @@ def save_data(request):
         user_name = data.get("user_name")
         token = data.get("token")
 
+        save_users(user_name, token)
         project_data = get_api_data_project(user_name, token)
         issues_data = get_api_data_issues()
         issues_list = issues_data.get("issues", [])
+
 
         try:
             if isinstance(project_data, list) and isinstance(issues_list, list):
@@ -261,6 +264,7 @@ def get_project_per_author(request):
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
         
+
 @csrf_exempt
 def get_project_per_period_and_author(request):
     if request.method != "POST":
@@ -294,7 +298,6 @@ def get_project_per_period_and_author(request):
             for project in projects_by_author:
                 list_return.append(filther_data(project, account_id))
             
-            print("---------------------acabou aqui-----------------")
 
         return JsonResponse(list_return, safe=False)
 
@@ -363,4 +366,7 @@ def list_user_by_Id(request, accountId):
             return JsonResponse({"error": "Usuário não encontrado."}, status=404)
 
     except Exception as e:
+
         return JsonResponse({"error": f"Falha ao acessar o usuário: {e}"}, status=500)
+
+

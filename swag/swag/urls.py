@@ -10,9 +10,8 @@ def home(request):
 urlpatterns = [
     path('', home),
     path('admin/', admin.site.urls),
-    path('project/save_project', save_data),
-    path('project/project_per_period_and_author', get_project_per_period_and_author),
     path('base_update', save_data),
+    path('project/project_per_period_and_author', get_project_per_period_and_author),
     path('users/list_users', list_users, name='list_users'),
     path('users/<str:accountId>/', list_user_by_Id, name='list_user_by_accountId')
 ]
