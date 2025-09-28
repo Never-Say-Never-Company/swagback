@@ -5,14 +5,13 @@ from requests.auth import HTTPBasicAuth
 from decouple import config
 from pymongo import MongoClient
 from datetime import datetime, timedelta
-from nsnapp.utils import convert_objectid_to_str # Presumimos que esta função existe
+from nsnapp.utils import convert_objectid_to_str
 import requests
 import json
 import copy
 import os
 import re
 
-# Configurações e Conexão com MongoDB
 API_URL_PROJECT = config("JIRA_URL_PROJECT")
 API_URL_ISSUES = config("JIRA_URL_ISSUES")
 JIRA_URL_USERS = config("JIRA_URL_USERS")
@@ -25,34 +24,25 @@ db = client["swag"]
 project_collections = db["projects_per_hours"]
 users_collection = db["users"]
 
-# --- FUNÇÕES AUXILIARES ---
-
-# Função auxiliar: Converte a string de tempo (ex: "3h 26m") para minutos.
 def convert_time_to_minutes(time_str):
     """Converte uma string de tempo (ex: '3h 26m', '1h', '30m') para o total de minutos."""
     if not time_str:
         return 0
     total_minutes = 0
     
-    # Busca por horas (h)
     hours_match = re.search(r'(\d+)\s*h', time_str)
     if hours_match:
         total_minutes += int(hours_match.group(1)) * 60
         
-    # Busca por minutos (m)
     minutes_match = re.search(r'(\d+)\s*m', time_str)
     if minutes_match:
         total_minutes += int(minutes_match.group(1))
         
     return total_minutes
 
-# Função auxiliar: Extrai uma lista simples de account_ids
 def extract_account_ids(authors_list):
     """Extrai uma lista de strings de account_id da lista de dicionários de autores."""
-    # Garante que só pega IDs válidos
     return [author['account_id'] for author in authors_list if isinstance(author, dict) and author.get('account_id')]
-
-# --- FUNÇÕES DE ACESSO À API E MONGO EXISTENTES ---
 
 def get_api_data_project(user_name, token):
     response = requests.get(
@@ -285,8 +275,6 @@ def get_project_per_author(request):
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
         
-# --- FUNÇÃO PRINCIPAL CORRIGIDA ---
-
 @csrf_exempt
 def get_project_per_period_and_author(request):
     if request.method != "POST":
@@ -305,19 +293,14 @@ def get_project_per_period_and_author(request):
         if not isinstance(authors, list) or not authors:
             return JsonResponse({"error": "O corpo deve conter uma lista não vazia de autores."}, status=400)
 
-        # 1. Buscando e preparando os projetos
         projects = get_project_by_period(begin, end)
         projects = convert_objectid_to_str(projects)
         projects_original = copy.deepcopy(projects) 
-        
-        # 2. Extraindo os account_ids selecionados
         selected_author_ids = extract_account_ids(authors)
         
-        # Inicializar os dicionários de agregação (Nome do Projeto: Total de Minutos)
         total_team_aggregation = {}
         selected_people_aggregation = {}
 
-        # 3. Processamento e Agregação de Logs (CORRIGIDO)
         for project in projects_original:
             project_name = project.get("name")
             
@@ -327,52 +310,42 @@ def get_project_per_period_and_author(request):
             total_team_minutes = 0
             selected_people_minutes = 0
             
-            # NOVO: Iterar sobre a lista de 'issues', que contém os 'author_logs'
             for issue in project.get("issues", []):
                 
-                # Iterar sobre a lista de 'author_logs' dentro de cada issue
                 for log in issue.get("author_logs", []):
                     account_id = log.get("account_id")
                     
                     time_in_minutes = 0
                     if isinstance(log.get("time_spent_seconds"), int):
-                        # time_spent_seconds geralmente é em segundos, então divide por 60
                         time_in_minutes = log["time_spent_seconds"] / 60
                     else:
-                        # Se não, converte a string
                         time_in_minutes = convert_time_to_minutes(log.get("time_spent"))
                     
-                    # Acumular para o total da equipe
                     total_team_minutes += time_in_minutes
                     
-                    # Acumular para as pessoas selecionadas
                     if account_id in selected_author_ids:
                         selected_people_minutes += time_in_minutes
             
-            # Acumular no nível do projeto
             if total_team_minutes > 0:
                 total_team_aggregation[project_name] = total_team_aggregation.get(project_name, 0) + total_team_minutes
 
             if selected_people_minutes > 0:
                 selected_people_aggregation[project_name] = selected_people_aggregation.get(project_name, 0) + selected_people_minutes
 
-
-        # 4. Formatação Final
         formatted_team_list = []
         for name, minutes in total_team_aggregation.items():
             formatted_team_list.append({
                 "nome_projeto": name,
-                "minutos_projeto": round(minutes) # Arredonda para inteiro
+                "minutos_projeto": round(minutes)
             })
 
         formatted_selected_list = []
         for name, minutes in selected_people_aggregation.items():
             formatted_selected_list.append({
                 "nome_projeto": name,
-                "minutos_projeto": round(minutes) # Arredonda para inteiro
+                "minutos_projeto": round(minutes)
             })
 
-        # Estrutura de retorno final
         list_return = {
             "toda_equipe": formatted_team_list,
             "pessoas_selecionadas": formatted_selected_list
@@ -383,7 +356,6 @@ def get_project_per_period_and_author(request):
     except json.JSONDecodeError:
         return JsonResponse({"error": "JSON inválido"}, status=400)
     except Exception as e:
-        # É sempre bom logar o erro 'e' aqui para depuração
         print(f"Erro inesperado em get_project_per_period_and_author: {e}") 
         return JsonResponse({"error": f"Erro interno no servidor: {e}"}, status=500)
     
@@ -406,9 +378,6 @@ def save_users(user_name, token):
 from django.http import JsonResponse
 from pymongo import MongoClient
 
-# Assumindo que MONGO_PATH está definido em algum lugar
-# Assumindo que o ambiente Django ou similar está configurado
-
 def list_users(request):
     if request.method != 'GET':
         return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
@@ -425,16 +394,14 @@ def list_users(request):
 
         display_name = request.GET.get('displayName')
         if display_name:
-            # A busca por REGEX (parcial, case-insensitive) não muda
             filters['displayName'] = {'$regex': display_name, '$options': 'i'}
 
 
         users_collection = db["users"]
         
-        # 🎯 MUDANÇA AQUI: Adiciona o .sort()
         users = list(
             users_collection.find(filters, {"_id": 0, "accountId": 1, "displayName": 1})
-            .sort("displayName", 1)  # Ordena pelo campo 'displayName' em ordem ascendente (1)
+            .sort("displayName", 1)
         )
 
         return JsonResponse(users, safe=False)
