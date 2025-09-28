@@ -1,0 +1,7 @@
+Django
+python-decouple
+pymongo
+python-dotenv
+djangorestframework
+requests
+django-cors-headers
