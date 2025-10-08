@@ -5,3 +5,5 @@ python-dotenv
 djangorestframework
 requests
 django-cors-headers
+mongoengine
+bcrypt
