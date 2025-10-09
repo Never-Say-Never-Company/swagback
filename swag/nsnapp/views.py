@@ -5,12 +5,20 @@ from requests.auth import HTTPBasicAuth
 from decouple import config
 from pymongo import MongoClient
 from datetime import datetime, timedelta
-from nsnapp.utils import convert_objectid_to_str
+# Importação da lógica de IA (apenas as funções de chat)
+from nsnapp.ai_service import send_message_to_chat, gemini_client 
+
+# NOTA: Assumindo que esta função existe no seu projeto.
+# Se não existir, comente ou remova esta linha:
+from nsnapp.utils import convert_objectid_to_str 
+
 import requests
 import json
 import copy
 import os
 import re
+
+# --- CONFIGURAÇÃO E CLIENTES ---
 
 API_URL_PROJECT = config("JIRA_URL_PROJECT")
 API_URL_ISSUES = config("JIRA_URL_ISSUES")
@@ -18,11 +26,15 @@ JIRA_URL_USERS = config("JIRA_URL_USERS")
 API_USER_NAME = config("JIRA_USER_NAME")
 API_TOKEN = config("JIRA_TOKEN")
 MONGO_PATH = config("MONGO_PATH")
-
+    
+# Configuração do MongoDB
 client = MongoClient(MONGO_PATH)
 db = client["swag"]
 project_collections = db["projects_per_hours"]
 users_collection = db["users"]
+
+
+# --- FUNÇÕES AUXILIARES (Mantidas as originais) ---
 
 def convert_time_to_minutes(time_str):
     """Converte uma string de tempo (ex: '3h 26m', '1h', '30m') para o total de minutos."""
@@ -115,6 +127,85 @@ def get_api_data_users(user_name, token):
     response.raise_for_status()
     return response.json()
 
+def get_project_by_period(begin, end):    
+    begin_formated = datetime.strptime(begin, "%Y-%m-%d")
+    end_formated = datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1) - timedelta(seconds=1)
+
+    results = project_collections.find({
+        "issues": {
+            "$elemMatch": {
+                "author_logs": {
+                    "$elemMatch": {
+                        "jira_created_at": {
+                            "$gte": begin_formated,
+                            "$lte": end_formated
+                        }
+                    }
+                }
+            }
+        }
+    })
+    finded_projects = list(results)
+
+    return finded_projects
+
+def get_project_by_author(accountId):
+    results = project_collections.find({
+        "issues": {
+            "$elemMatch": {
+                "author_logs": {
+                    "$elemMatch": {
+                        "account_id": accountId
+                    }
+                }
+            }
+        }
+    })
+    finded_projects = list(results)
+    return finded_projects
+
+def filter_projects_by_projects_author(projects, account_id):
+    filtered = []
+
+    for project in projects:
+        has_author_log = False
+        for issue in project.get("issues", []):
+            filtered_logs = [
+                log for log in issue.get("author_logs", [])
+                if log.get("account_id") == account_id
+            ]
+            if filtered_logs:
+                has_author_log = True
+                issue["author_logs"] = filtered_logs
+        if has_author_log:
+            filtered.append(project)
+    return filtered
+
+def filther_data(data, author):
+    for issue in data["issues"]:
+        issue["author_logs"] = [
+            log for log in issue["author_logs"]
+            if log["account_id"] == author
+        ]
+    
+    return data
+
+def save_users(user_name, token):
+    try:
+        users_data = get_api_data_users(user_name, token)
+        users_collection.delete_many({})
+        if users_data:
+            users_collection.insert_many(users_data)
+        return JsonResponse({"status": "success", "message": "Usuários salvos"}, status=200)
+
+    except requests.exceptions.RequestException as e:
+        return JsonResponse({"error": f"Erro ao acessar API Jira: {str(e)}"}, status=500)
+    except Exception as e:
+        return JsonResponse({"error": f"Ocorreu um erro inesperado: {str(e)}"}, status=500)
+
+
+# --- ENDPOINTS (Existentes) ---
+
 @csrf_exempt
 def save_data(request):
     if request.method == "POST":
@@ -153,29 +244,8 @@ def save_data(request):
                 cleaned_project_data = clean_data(project_data, issues_data)
                 project_collections.insert_one(cleaned_project_data)
         except requests.exceptions.RequestException as e:
-            return requests.Response.json()
-    
-def get_project_by_period(begin, end):    
-    begin_formated = datetime.strptime(begin, "%Y-%m-%d")
-    end_formated = datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1) - timedelta(seconds=1)
+            return JsonResponse({"error": f"Erro na requisição Jira: {e}"}, status=500)
 
-    results = project_collections.find({
-        "issues": {
-            "$elemMatch": {
-                "author_logs": {
-                    "$elemMatch": {
-                        "jira_created_at": {
-                            "$gte": begin_formated,
-                            "$lte": end_formated
-                        }
-                    }
-                }
-            }
-        }
-    })
-    finded_projects = list(results)
-
-    return finded_projects
 
 @csrf_exempt
 def get_project_per_period(request):
@@ -201,51 +271,6 @@ def get_project_per_period(request):
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=500)
 
-def get_project_by_author(accountId):
-    results = project_collections.find({
-        "issues": {
-            "$elemMatch": {
-                "author_logs": {
-                    "$elemMatch": {
-                        "account_id": accountId
-                    }
-                }
-            }
-        }
-    })
-    finded_projects = list(results)
-    return finded_projects
-
-def filter_projects_by_projects_author(projects, account_id):
-    filtered = []
-
-    for project in projects:
-        for issue in project.get("issues", []):
-            for author_log in issue.get("author_logs", []):
-                print(author_log.get("display_name"))
-
-        has_author_log = False
-        for issue in project.get("issues", []):
-            filtered_logs = [
-                log for log in issue.get("author_logs", [])
-                if log.get("account_id") == account_id
-            ]
-            if filtered_logs:
-                has_author_log = True
-                issue["author_logs"] = filtered_logs
-        if has_author_log:
-            filtered.append(project)
-    return filtered
-
-def filther_data(data, author):
-    for issue in data["issues"]:
-        issue["author_logs"] = [
-            log for log in issue["author_logs"]
-            if log["account_id"] == author
-        ]
-    
-    return data
-
 @csrf_exempt
 def get_project_per_author(request):
     if request.method == "POST":
@@ -268,7 +293,6 @@ def get_project_per_author(request):
                 for result in results:
                     list_return.append(filther_data(result, author))
             
-            print(list_return)
             return JsonResponse(list_return, safe=False)
         except json.JSONDecodeError:
             return JsonResponse({"error": "JSON inválido"}, status=400)
@@ -359,33 +383,11 @@ def get_project_per_period_and_author(request):
         print(f"Erro inesperado em get_project_per_period_and_author: {e}") 
         return JsonResponse({"error": f"Erro interno no servidor: {e}"}, status=500)
     
-def save_users(user_name, token):
-
-    try:
-        users_data = get_api_data_users(user_name, token)
-
-        users_collection.delete_many({})
-
-        if users_data:
-            users_collection.insert_many(users_data)
-
-    except requests.exceptions.RequestException as e:
-        return JsonResponse({"error": f"Erro ao acessar API Jira: {str(e)}"}, status=500)
-    except Exception as e:
-        return JsonResponse({"error": f"Ocorreu um erro inesperado: {str(e)}"}, status=500)
-
-
-from django.http import JsonResponse
-from pymongo import MongoClient
-
 def list_users(request):
     if request.method != 'GET':
         return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
 
     try:
-        client = MongoClient(MONGO_PATH)
-        db = client["swag"]
-
         filters = {}
 
         account_id = request.GET.get('accountId')
@@ -395,9 +397,6 @@ def list_users(request):
         display_name = request.GET.get('displayName')
         if display_name:
             filters['displayName'] = {'$regex': display_name, '$options': 'i'}
-
-
-        users_collection = db["users"]
         
         users = list(
             users_collection.find(filters, {"_id": 0, "accountId": 1, "displayName": 1})
@@ -414,10 +413,6 @@ def list_user_by_Id(request, accountId):
         return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
 
     try:
-        client = MongoClient(MONGO_PATH)
-        db = client["swag"]
-
-        users_collection = db["users"]
         user = users_collection.find_one({"accountId": accountId}, {"_id": 0,  "accountId": 1, "displayName": 1})
 
         if user:
@@ -426,7 +421,6 @@ def list_user_by_Id(request, accountId):
             return JsonResponse({"error": "Usuário não encontrado."}, status=404)
 
     except Exception as e:
-
         return JsonResponse({"error": f"Falha ao acessar o usuário: {e}"}, status=500)
 
 def count_issues_grouped_by_project(request):
@@ -434,10 +428,6 @@ def count_issues_grouped_by_project(request):
         return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
 
     try:
-        client = MongoClient(MONGO_PATH)
-        db = client["swag"]
-        project_collections = db["projects_per_hours"]
-
         pipeline = [
             {"$unwind": "$issues"},
             {
@@ -469,10 +459,6 @@ def count_issues_by_user_and_total_hours(request):
         return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
 
     try:
-        client = MongoClient(MONGO_PATH)
-        db = client["swag"]
-        project_collections = db["projects_per_hours"]
-
         pipeline = [
             {
                 "$unwind": "$issues"
@@ -497,7 +483,7 @@ def count_issues_by_user_and_total_hours(request):
         results = list(project_collections.aggregate(pipeline))
 
         formatted = [
-            {"nome": r["_id"], "quantidade_issues": r["issue_count"],"total_horas": round(r["total_time_spent_minutes"], 2)}
+            {"nome": r["_id"], "quantidade_issues": r["issue_count"],"total_horas": round(r["total_time_spent_minutes"] / 60, 2)}
             for r in results
         ]
 
@@ -509,5 +495,73 @@ def count_issues_by_user_and_total_hours(request):
             status=500
         )
                
+# --- ENDPOINT DE CHAT COM CONTEÚDO (handle_chat_ia) ---
+
+@csrf_exempt
+def get_feedback_ia(request):
+    # Esta função está obsoleta e deve ser removida do urls.py
+    return JsonResponse({'error': 'Endpoint desativado. Use /ia/chat/.'}, status=404)
+
+
+@csrf_exempt
+def handle_chat_ia(request):
+    """
+    Recebe uma mensagem de chat e o ID da sessão para manter a conversa, 
+    permitindo um JSON de métrica opcional no campo 'conteudo' para contextualização.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "Método não permitido. Use POST."}, status=405)
         
+    # Verifica se o cliente Gemini foi inicializado com sucesso
+    if gemini_client is None:
+        return JsonResponse({'error': 'Cliente Gemini não está configurado. Verifique a GEMINI_API_KEY no seu .env.'}, status=503)
+
+    try:
+        data = json.loads(request.body)
+        session_id = data.get('session_id')
+        user_message = data.get('message')
+        metric_content = data.get('conteudo') # <--- NOVO CAMPO PARA O JSON DA MÉTRICA
         
+        if not session_id or not user_message:
+            return JsonResponse({'error': 'Os campos session_id e message são obrigatórios.'}, status=400)
+        
+        # 1. Constrói a Mensagem COMPLETA para a IA
+        full_prompt = user_message
+        
+        if metric_content and isinstance(metric_content, dict):
+            # Extrai os dados do 'conteudo'
+            metric_name = metric_content.get('metric_name', 'Métrica Não Nomeada')
+            metric_data = metric_content.get('data')
+            
+            # Anexa o conteúdo JSON à mensagem do usuário para dar contexto à IA
+            if metric_data:
+                # Converte o JSON de dados em string para o prompt da IA
+                data_string = json.dumps(metric_data, indent=2, ensure_ascii=False)
+                
+                full_prompt += (
+                    f"\n\n[CONTEXTO DA MÉTRICA: {metric_name}]\n"
+                    "```json\n"
+                    f"{data_string}\n"
+                    "```\n"
+                    "Analise o CONTEXTO DA MÉTRICA e responda a mensagem."
+                )
+        
+        # 2. Chama a função de serviço de IA para enviar a mensagem CONTEXTUALIZADA
+        feedback_text = send_message_to_chat(session_id, full_prompt)
+
+        # 3. Tratamento e Retorno
+        if feedback_text is None:
+             return JsonResponse({
+                'error': 'Falha ao processar mensagem de chat.',
+                'details': 'O modelo não retornou conteúdo. Verifique logs do Docker.'
+            }, status=500)
+        
+        # Retorno Final
+        return JsonResponse({'session_id': session_id, 'response': feedback_text}, status=200)
+
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "JSON inválido no corpo da requisição."}, status=400)
+    except Exception as e:
+        # Erro de servidor não tratado (ex: NameError)
+        print(f"Erro inesperado no endpoint de chat: {e}")
+        return JsonResponse({'error': f'Erro inesperado no servidor: {e}'}, status=500)

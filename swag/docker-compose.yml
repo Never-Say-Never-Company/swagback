@@ -5,9 +5,10 @@ services:
     image: mongo:latest
     container_name: mongodb
     ports:
-      - "27018:27017"
+      - "27018:27017" # Porta local 27018 mapeada para a porta interna 27017
     volumes:
       - mongodb_data:/data/db
+    # O serviço 'db' não precisa do env_file, mas o serviço 'web' precisa.
 
   web:
     build: .
@@ -20,7 +21,10 @@ services:
     depends_on:
       - db
     env_file:
-      - .env
+      - .env # Carrega todas as variáveis do .env (incluindo MONGO_PATH)
+    environment:
+      # Adicione esta linha: Garante que a chave da Gemini seja injetada.
+      - GEMINI_API_KEY=AIzaSyAT34asQ58O31a7cqS2ylYO2_yluufdNzk
 
 volumes:
   mongodb_data:
