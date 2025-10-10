@@ -1,12 +1,13 @@
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
+import requests
 from requests.auth import HTTPBasicAuth
 from decouple import config
 from pymongo import MongoClient
 from datetime import datetime, timedelta
 from nsnapp.utils import convert_objectid_to_str
-import requests
+from swag.settings import API_USER_NAME, API_TOKEN
 import json
 import copy
 import os
@@ -15,8 +16,6 @@ import re
 API_URL_PROJECT = config("JIRA_URL_PROJECT")
 API_URL_ISSUES = config("JIRA_URL_ISSUES")
 JIRA_URL_USERS = config("JIRA_URL_USERS")
-API_USER_NAME = config("JIRA_USER_NAME")
-API_TOKEN = config("JIRA_TOKEN")
 MONGO_PATH = config("MONGO_PATH")
 
 client = MongoClient(MONGO_PATH)
@@ -123,8 +122,8 @@ def save_data(request):
         if data is None:
             return JsonResponse({"error": "Dados inválidos"}, status=400)
 
-        user_name = data.get("user_name")
-        token = data.get("token")
+        user_name = API_USER_NAME
+        token = API_TOKEN
 
         save_users(user_name, token)
         project_data = get_api_data_project(user_name, token)

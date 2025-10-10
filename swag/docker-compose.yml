@@ -15,12 +15,16 @@ services:
     command: python manage.py runserver 0.0.0.0:8000
     volumes:
       - .:/code
+      - ~/.aws:/root/.aws:ro
+    environment:
+      AWS_REGION: "us-east-2" 
     ports:
       - "8000:8000"
     depends_on:
       - db
     env_file:
       - .env
+      
 
 volumes:
   mongodb_data:
