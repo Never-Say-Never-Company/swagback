@@ -113,7 +113,41 @@ def get_api_data_users(user_name, token):
         params=params 
     )
     response.raise_for_status()
-    return response.json()
+    users_data = response.json()
+
+    project_docs = project_collections.find({}, {"issues.author_logs.account_id": 1})
+    account_ids_with_hours = set()
+
+    for doc in project_docs:
+        for issue in doc.get("issues", []):
+            for log in issue.get("author_logs", []):
+                if log.get("account_id"):
+                    account_ids_with_hours.add(log["account_id"])
+
+    if not account_ids_with_hours:
+        filtered_users = users_data
+    else:
+        filtered_users = [
+            user for user in users_data
+            if user.get("accountId") in account_ids_with_hours
+        ]
+
+    return filtered_users
+
+def save_users(user_name, token):
+
+    try:
+        users_data = get_api_data_users(user_name, token)
+
+        users_collection.delete_many({})
+
+        if users_data:
+            users_collection.insert_many(users_data)
+
+    except requests.exceptions.RequestException as e:
+        return JsonResponse({"error": f"Erro ao acessar API Jira: {str(e)}"}, status=500)
+    except Exception as e:
+        return JsonResponse({"error": f"Ocorreu um erro inesperado: {str(e)}"}, status=500)
 
 @csrf_exempt
 def save_data(request):
@@ -359,21 +393,6 @@ def get_project_per_period_and_author(request):
         print(f"Erro inesperado em get_project_per_period_and_author: {e}") 
         return JsonResponse({"error": f"Erro interno no servidor: {e}"}, status=500)
     
-def save_users(user_name, token):
-
-    try:
-        users_data = get_api_data_users(user_name, token)
-
-        users_collection.delete_many({})
-
-        if users_data:
-            users_collection.insert_many(users_data)
-
-    except requests.exceptions.RequestException as e:
-        return JsonResponse({"error": f"Erro ao acessar API Jira: {str(e)}"}, status=500)
-    except Exception as e:
-        return JsonResponse({"error": f"Ocorreu um erro inesperado: {str(e)}"}, status=500)
-
 
 from django.http import JsonResponse
 from pymongo import MongoClient
