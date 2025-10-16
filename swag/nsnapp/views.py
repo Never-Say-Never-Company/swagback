@@ -511,7 +511,7 @@ def count_issues_by_user_and_total_hours(request):
 @csrf_exempt
 def paginate_date(request):
     paginate_datas = []
-    if request.method != 'GET':
+    if request.method != 'POST':
         return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
     
     try:
