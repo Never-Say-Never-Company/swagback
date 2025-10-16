@@ -1,5 +1,6 @@
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 from django.http import JsonResponse
 import requests
 from requests.auth import HTTPBasicAuth
@@ -509,6 +510,7 @@ def count_issues_by_user_and_total_hours(request):
         )
                
 @csrf_exempt # NOSONAR
+@require_http_methods(["POST"])
 def paginate_date(request):
     paginate_datas = []
     if request.method != 'POST':
