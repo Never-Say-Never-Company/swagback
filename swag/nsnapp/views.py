@@ -508,5 +508,33 @@ def count_issues_by_user_and_total_hours(request):
             status=500
         )
                
+@csrf_exempt
+def paginate_date(request):
+    paginate_datas = []
+    if request.method != 'GET':
+        return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
+    
+    try:
+        data = json.loads(request.body)
+
+        if data is None:
+            return JsonResponse({"error": "Dados inválidos"}, status=400)
         
+        init = data.get("init")
+        end = data.get("end")
+
+        if init > end:
+            return JsonResponse({"Error": "'init' deve ser menor que o 'end'."}, status=400)
         
+        all_collection = list(project_collections.find())
+
+        for i in range(init, end + 1):
+            paginate_datas.append(convert_objectid_to_str(all_collection[i]))
+
+        return JsonResponse(paginate_datas, safe=False)
+    
+    except Exception as e:
+        return JsonResponse(
+            {"error": f"Falha ao contar issues por projeto: {e}"},
+            status=500
+        )
