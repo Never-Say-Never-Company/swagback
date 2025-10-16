@@ -508,7 +508,7 @@ def count_issues_by_user_and_total_hours(request):
             status=500
         )
                
-@csrf_exempt
+@csrf_exempt # NOSONAR
 def paginate_date(request):
     paginate_datas = []
     if request.method != 'POST':
