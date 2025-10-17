@@ -1,5 +1,6 @@
 from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_http_methods
 from django.http import JsonResponse
 import requests
 from requests.auth import HTTPBasicAuth
@@ -508,5 +509,38 @@ def count_issues_by_user_and_total_hours(request):
             status=500
         )
                
+@csrf_exempt # NOSONAR
+@require_http_methods(["POST"])
+def paginate_date(request):
+    paginate_datas = []
+    if request.method != 'POST':
+        return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
+    
+    try:
+        data = json.loads(request.body)
+
+        if data is None:
+            return JsonResponse({"error": "Dados inválidos"}, status=400)
         
+        init = data.get("init")
+        end = data.get("end")
+
+        if init > end:
+            return JsonResponse({"Error": "'init' deve ser menor que o 'end'."}, status=400)
         
+        all_collection = list(project_collections.find())
+
+        for i in range(init, end + 1):
+            if i == len(all_collection):
+                break
+            
+            paginate_datas.append(convert_objectid_to_str(all_collection[i]))
+            
+
+        return JsonResponse(paginate_datas, safe=False)
+    
+    except Exception as e:
+        return JsonResponse(
+            {"error": f"Falha ao contar issues por projeto: {e}"},
+            status=500
+        )
