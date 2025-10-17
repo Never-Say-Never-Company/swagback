@@ -531,7 +531,11 @@ def paginate_date(request):
         all_collection = list(project_collections.find())
 
         for i in range(init, end + 1):
+            if i == len(all_collection):
+                break
+            
             paginate_datas.append(convert_objectid_to_str(all_collection[i]))
+            
 
         return JsonResponse(paginate_datas, safe=False)
     
