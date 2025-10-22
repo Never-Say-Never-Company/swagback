@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from nsnapp.utils import convert_objectid_to_str
 from swag.settings import API_USER_NAME, API_TOKEN
 import json
+from pymongo.server_api import ServerApi
 import copy
 import os
 import re
@@ -17,15 +18,21 @@ import re
 API_URL_PROJECT = config("JIRA_URL_PROJECT")
 API_URL_ISSUES = config("JIRA_URL_ISSUES")
 JIRA_URL_USERS = config("JIRA_URL_USERS")
-MONGO_PATH = config("MONGO_PATH")
+MONGO_URI = config("MONGO_URI")
 
-client = MongoClient(MONGO_PATH)
-db = client["swag"]
-project_collections = db["projects_per_hours"]
-users_collection = db["users"]
+
+CLIENTE_MONGO = MongoClient(MONGO_URI, server_api=ServerApi('1')) 
+DB_SWAG = CLIENTE_MONGO["swag"]
+project_collections = DB_SWAG["projects_per_hours"]
+users_collection = DB_SWAG["users"]
+
+try:
+    CLIENTE_MONGO.admin.command('ping')
+    print("Conexão com MongoDB Atlas estabelecida com sucesso!")
+except Exception as e:
+    print(f"ERRO DE CONEXÃO COM MONGODB: {e}")
 
 def convert_time_to_minutes(time_str):
-    """Converte uma string de tempo (ex: '3h 26m', '1h', '30m') para o total de minutos."""
     if not time_str:
         return 0
     total_minutes = 0
@@ -41,7 +48,6 @@ def convert_time_to_minutes(time_str):
     return total_minutes
 
 def extract_account_ids(authors_list):
-    """Extrai uma lista de strings de account_id da lista de dicionários de autores."""
     return [author['account_id'] for author in authors_list if isinstance(author, dict) and author.get('account_id')]
 
 def get_api_data_project(user_name, token):
@@ -143,9 +149,9 @@ def save_data(request):
                             
                             if project["key"] == issue_key:
                                 cleaned_data.append(clean_data(project, issue))
-                all_collection = project_collections.database.list_collection_names()
-                if project_collections.name in all_collection:
-                    project_collections.drop()
+                
+                project_collections.drop() 
+                
                 project_collections.insert_many(cleaned_data)
                 
                 return JsonResponse({"status": "success", "message": "Dados salvos"})
@@ -155,27 +161,27 @@ def save_data(request):
         except requests.exceptions.RequestException as e:
             return requests.Response.json()
     
-def get_project_by_period(begin, end):    
-    begin_formated = datetime.strptime(begin, "%Y-%m-%d")
-    end_formated = datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1) - timedelta(seconds=1)
+    def get_project_by_period(begin, end): 
+        begin_formated = datetime.strptime(begin, "%Y-%m-%d")
+        end_formated = datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1) - timedelta(seconds=1)
 
-    results = project_collections.find({
-        "issues": {
-            "$elemMatch": {
-                "author_logs": {
-                    "$elemMatch": {
-                        "jira_created_at": {
-                            "$gte": begin_formated,
-                            "$lte": end_formated
+        results = project_collections.find({
+            "issues": {
+                "$elemMatch": {
+                    "author_logs": {
+                        "$elemMatch": {
+                            "jira_created_at": {
+                                "$gte": begin_formated,
+                                "$lte": end_formated
+                            }
                         }
                     }
                 }
             }
-        }
-    })
-    finded_projects = list(results)
+        })
+        finded_projects = list(results)
 
-    return finded_projects
+        return finded_projects
 
 @csrf_exempt
 def get_project_per_period(request):
@@ -255,13 +261,13 @@ def get_project_per_author(request):
 
             if not isinstance(data, list):
                 return JsonResponse({"error": "O corpo deve ser uma lista de autores."}, status=400)
-        
+            
             for item in data:
                 author = item.get("account_id")
 
                 if not author:
                     return JsonResponse({"error": "Necessário ter 'author' na chave."}, status=400)
-            
+                
                 results = get_project_by_author(author)
                 results = convert_objectid_to_str(results)
 
@@ -383,9 +389,6 @@ def list_users(request):
         return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
 
     try:
-        client = MongoClient(MONGO_PATH)
-        db = client["swag"]
-
         filters = {}
 
         account_id = request.GET.get('accountId')
@@ -395,9 +398,6 @@ def list_users(request):
         display_name = request.GET.get('displayName')
         if display_name:
             filters['displayName'] = {'$regex': display_name, '$options': 'i'}
-
-
-        users_collection = db["users"]
         
         users = list(
             users_collection.find(filters, {"_id": 0, "accountId": 1, "displayName": 1})
@@ -414,10 +414,6 @@ def list_user_by_Id(request, accountId):
         return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
 
     try:
-        client = MongoClient(MONGO_PATH)
-        db = client["swag"]
-
-        users_collection = db["users"]
         user = users_collection.find_one({"accountId": accountId}, {"_id": 0,  "accountId": 1, "displayName": 1})
 
         if user:
@@ -434,10 +430,6 @@ def count_issues_grouped_by_project(request):
         return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
 
     try:
-        client = MongoClient(MONGO_PATH)
-        db = client["swag"]
-        project_collections = db["projects_per_hours"]
-
         pipeline = [
             {"$unwind": "$issues"},
             {
@@ -469,10 +461,6 @@ def count_issues_by_user_and_total_hours(request):
         return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
 
     try:
-        client = MongoClient(MONGO_PATH)
-        db = client["swag"]
-        project_collections = db["projects_per_hours"]
-
         pipeline = [
             {
                 "$unwind": "$issues"
@@ -482,11 +470,11 @@ def count_issues_by_user_and_total_hours(request):
             },
             {
                 "$group": {
-                    "_id": "$issues.author_logs.display_name",  
-                    "issue_count": { "$sum": 1 },  
+                    "_id": "$issues.author_logs.display_name", 
+                    "issue_count": { "$sum": 1 }, 
                     "total_time_spent_minutes": {
                         "$sum": { "$divide": ["$issues.author_logs.time_spent_seconds", 60] }
-                    }  
+                    } 
                 }
             },
             {
@@ -508,8 +496,8 @@ def count_issues_by_user_and_total_hours(request):
             {"error": f"Falha ao contar issues por projeto: {e}"},
             status=500
         )
-               
-@csrf_exempt # NOSONAR
+            
+@csrf_exempt
 @require_http_methods(["POST"])
 def paginate_date(request):
     paginate_datas = []
