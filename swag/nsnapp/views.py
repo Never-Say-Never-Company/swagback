@@ -5,7 +5,9 @@ from requests.auth import HTTPBasicAuth
 from decouple import config
 from pymongo import MongoClient
 from datetime import datetime, timedelta
+# Importações JWT não são necessárias aqui, mas mantive as suas originais:
 from nsnapp.utils import convert_objectid_to_str
+from .decorators import jwt_required # <-- NOVO: Importa o decorador
 import requests
 import json
 import copy
@@ -116,6 +118,9 @@ def get_api_data_users(user_name, token):
     return response.json()
 
 @csrf_exempt
+# O save_data provavelmente NÃO DEVE ser protegido por JWT, 
+# pois é ele quem geralmente aciona a primeira coleta de dados
+# usando as credenciais do Jira.
 def save_data(request):
     if request.method == "POST":
         data = json.loads(request.body)
@@ -178,6 +183,7 @@ def get_project_by_period(begin, end):
     return finded_projects
 
 @csrf_exempt
+@jwt_required # <-- PROTEGIDA POR JWT
 def get_project_per_period(request):
     if request.method == "POST":
         try:
@@ -192,6 +198,9 @@ def get_project_per_period(request):
             if not begin or not end:
                 return JsonResponse({"error": "Necessário ter 'begin' e 'end' nas chaves."}, status=400)
             
+            # Opcional: Aqui você pode usar a informação do token
+            # print(f"Usuário autenticado: {request.user_info.get('user_name')}")
+
             result = list(get_project_by_period(begin, end))
             result = convert_objectid_to_str(result)
             
@@ -247,6 +256,7 @@ def filther_data(data, author):
     return data
 
 @csrf_exempt
+@jwt_required # <-- PROTEGIDA POR JWT
 def get_project_per_author(request):
     if request.method == "POST":
         try:
@@ -276,6 +286,7 @@ def get_project_per_author(request):
             return JsonResponse({"error": str(e)}, status=500)
         
 @csrf_exempt
+@jwt_required # <-- PROTEGIDA POR JWT
 def get_project_per_period_and_author(request):
     if request.method != "POST":
         return JsonResponse({"error": "Método não permitido"}, status=405)
@@ -375,9 +386,6 @@ def save_users(user_name, token):
         return JsonResponse({"error": f"Ocorreu um erro inesperado: {str(e)}"}, status=500)
 
 
-from django.http import JsonResponse
-from pymongo import MongoClient
-
 def list_users(request):
     if request.method != 'GET':
         return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
@@ -429,6 +437,7 @@ def list_user_by_Id(request, accountId):
 
         return JsonResponse({"error": f"Falha ao acessar o usuário: {e}"}, status=500)
 
+@jwt_required # <-- PROTEGIDA POR JWT
 def count_issues_grouped_by_project(request):
     if request.method != 'GET':
         return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
@@ -464,6 +473,7 @@ def count_issues_grouped_by_project(request):
             status=500
         )
 
+@jwt_required # <-- PROTEGIDA POR JWT
 def count_issues_by_user_and_total_hours(request):
     if request.method != 'GET':
         return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
@@ -508,6 +518,3 @@ def count_issues_by_user_and_total_hours(request):
             {"error": f"Falha ao contar issues por projeto: {e}"},
             status=500
         )
-               
-        
-        
