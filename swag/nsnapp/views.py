@@ -177,6 +177,8 @@ def get_project_by_period(begin, end):
 
     return finded_projects
 
+print(get_project_by_period("2025-10-01", "2025-10-31"))
+
 @csrf_exempt
 def get_project_per_period(request):
     if request.method == "POST":
