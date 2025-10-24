@@ -15,7 +15,7 @@ import os
 import re
 
 API_URL_PROJECT = config("JIRA_URL_PROJECT")
-API_URL_ISSUES = config("JIRA_URL_ISSUES")
+API_URL_GERAL = config("JIRA_URL_GERAL")
 JIRA_URL_USERS = config("JIRA_URL_USERS")
 MONGO_PATH = config("MONGO_PATH")
 
@@ -67,13 +67,66 @@ def get_api_data_issues():
     
 
     response = requests.post(
-            API_URL_ISSUES,
+            API_URL_GERAL,
             headers=headers,
             auth=(API_USER_NAME, API_TOKEN),
             json=params
         )
     response.raise_for_status()
     return response.json()
+
+def get_issues_with_worklogs():
+    try:
+        headers = {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'Cookie': os.getenv('JIRA_COOKIE'),
+        }
+
+        params = {
+            "jql": "project IN (SE, SM2) and timespent > 0",
+            "fields": [
+                "worklog"
+            ]
+        }
+
+        response = requests.post(
+            API_URL_GERAL,
+            headers=headers,
+            auth=(API_USER_NAME, API_TOKEN),
+            json=params
+        )
+        response.raise_for_status()
+
+        issues_data = response.json()
+        users = {}
+
+        for issue in issues_data.get("issues", []):
+            worklogs = issue.get("fields", {}).get("worklog", {}).get("worklogs", [])
+            for worklog in worklogs:
+                author = worklog.get("author")
+                if author and author.get("accountId"):
+                    users[author["accountId"]] = {
+                        "accountId": author.get("accountId"),
+                        "displayName": author.get("displayName"),
+                        "avatarUrls": author.get("avatarUrls"),
+                        "emailAddress": author.get("emailAddress")
+                    }
+        
+        if users:
+            users_list = list(users.values())
+            users_collection.delete_many({})
+            users_collection.insert_many(users_list)
+
+        return issues_data
+
+    except requests.exceptions.RequestException as e:
+        print(f"Erro ao obter issues com worklogs da API do Jira: {e}")
+        return JsonResponse({"error": f"Erro ao obter issues com worklogs da API do Jira: {e}"}, status=500)
+    except Exception as e:
+        print(f"Erro inesperado ao obter issues com worklogs: {e}")
+        return JsonResponse({"error": f"Erro inesperado: {e}"}, status=500)
+
 
 def clean_data(project, issue):
     worklogs = issue.get("fields", {}).get("worklog", {}).get("worklogs", [])
@@ -101,19 +154,6 @@ def clean_data(project, issue):
         ]
     }
 
-def get_api_data_users(user_name, token):
-    params = {
-        "maxResults": 1000,
-        "orderBy": "displayName"
-    }
-    
-    response = requests.get(
-        f"{JIRA_URL_USERS}",
-        auth=HTTPBasicAuth(user_name, token),
-        params=params 
-    )
-    response.raise_for_status()
-    return response.json()
 
 @csrf_exempt
 def save_data(request):
@@ -126,10 +166,12 @@ def save_data(request):
         user_name = API_USER_NAME
         token = API_TOKEN
 
-        save_users(user_name, token)
+        project_collections.delete_many({})
         project_data = get_api_data_project(user_name, token)
         issues_data = get_api_data_issues()
         issues_list = issues_data.get("issues", [])
+        get_issues_with_worklogs()
+
 
         try:
             if isinstance(project_data, list) and isinstance(issues_list, list):
@@ -359,21 +401,6 @@ def get_project_per_period_and_author(request):
         print(f"Erro inesperado em get_project_per_period_and_author: {e}") 
         return JsonResponse({"error": f"Erro interno no servidor: {e}"}, status=500)
     
-def save_users(user_name, token):
-
-    try:
-        users_data = get_api_data_users(user_name, token)
-
-        users_collection.delete_many({})
-
-        if users_data:
-            users_collection.insert_many(users_data)
-
-    except requests.exceptions.RequestException as e:
-        return JsonResponse({"error": f"Erro ao acessar API Jira: {str(e)}"}, status=500)
-    except Exception as e:
-        return JsonResponse({"error": f"Ocorreu um erro inesperado: {str(e)}"}, status=500)
-
 
 from django.http import JsonResponse
 from pymongo import MongoClient
