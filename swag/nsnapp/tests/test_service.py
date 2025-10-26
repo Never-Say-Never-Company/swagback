@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 from datetime import datetime, timedelta
 from bson import ObjectId
 
-# Importa as funções do módulo services
+
 from nsnapp.services import (
     extract_account_ids,
     clean_data,
@@ -19,9 +19,7 @@ from nsnapp.services import (
 )
 from nsnapp.utils import (
     convert_objectid_to_str,
-)  # Se a função for necessária para simular o retorno
-
-# --- Simulações (Fixtures) ---
+)
 
 
 @pytest.fixture
@@ -32,7 +30,7 @@ def mock_mongo_collections():
         patch("nsnapp.services.users_collection") as mock_users,
         patch("nsnapp.services.developer_rates_collection") as mock_rates,
     ):
-        # Simula o drop para que não dê erro nas chamadas
+
         mock_projects.database.list_collection_names.return_value = [
             "projects_per_hours"
         ]
@@ -49,7 +47,7 @@ def mock_convert_time():
     with patch(
         "nsnapp.services.convert_time_to_minutes", return_value=120
     ) as mock_convert:
-        # Definido como 120 (minutos) para simular o "2h" do Log 2
+
         yield mock_convert
 
 
@@ -67,7 +65,6 @@ def mock_get_project_by_period():
                     "issue_id": "10001",
                     "issue_key": "SE-1",
                     "author_logs": [
-                        # Log 1: Pessoa selecionada, time_spent_seconds (3600s = 60 min)
                         {
                             "account_id": "author-A",
                             "display_name": "Dev A",
@@ -75,7 +72,6 @@ def mock_get_project_by_period():
                             "time_spent": "1h",
                             "time_spent_seconds": 3600,
                         },
-                        # Log 2: Outro autor. REMOVIDO time_spent_seconds para FORÇAR O USO DE convert_time_to_minutes
                         {
                             "account_id": "author-B",
                             "display_name": "Dev B",
@@ -90,9 +86,6 @@ def mock_get_project_by_period():
     with patch("nsnapp.services.get_project_by_period") as mock_get:
         mock_get.return_value = project_data
         yield mock_get
-
-
-# --- Testes de Funções Auxiliares ---
 
 
 def test_extract_account_ids_should_return_correct_list():
@@ -173,11 +166,8 @@ def test_filther_data_should_keep_only_target_author():
     assert filtered["issues"][0]["author_logs"][0]["account_id"] == author_id
     assert len(filtered["issues"][1]["author_logs"]) == 1
     assert filtered["issues"][1]["author_logs"][0]["account_id"] == author_id
-    # Garante que a função está modificando o objeto in-place (ou uma cópia se o chamador usar deepcopy)
+
     assert filtered is data
-
-
-# --- Testes de Interação com MongoDB (Buscas) ---
 
 
 def test_get_project_by_period_should_call_find_with_correct_dates(
@@ -194,7 +184,7 @@ def test_get_project_by_period_should_call_find_with_correct_dates(
     assert result == ["proj1", "proj2"]
 
     expected_begin = datetime(2025, 1, 1)
-    # end_formated é 2025-02-01 00:00:00 - 1 segundo = 2025-01-31 23:59:59
+
     expected_end = datetime(2025, 1, 31, 23, 59, 59)
 
     mock_projects.find.assert_called_once()
@@ -236,21 +226,12 @@ def test_get_project_by_author_should_call_find_with_correct_accountId(
     )
 
 
-# --- Teste de Agregação de Período e Autor ---
-
-
 def test_aggregate_project_periods_and_authors_should_calculate_minutes_correctly(
     mock_get_project_by_period, mock_convert_time
 ):
     begin = "2025-10-01"
     end = "2025-10-31"
-    authors = [{"account_id": "author-A"}]  # author-A é selecionado
-
-    # Log 1 (author-A): 3600s = 60 minutos
-    # Log 2 (author-B): "2h" -> mock_convert_time retorna 120 minutos
-
-    # Total equipe: Log 1 (60) + Log 2 (120) = 180
-    # Pessoas selecionadas (author-A): Log 1 (60) = 60
+    authors = [{"account_id": "author-A"}]
 
     result = aggregate_project_periods_and_authors(begin, end, authors)
 
@@ -260,11 +241,8 @@ def test_aggregate_project_periods_and_authors_should_calculate_minutes_correctl
     assert result["pessoas_selecionadas"] == [
         {"nome_projeto": "Project Alpha", "minutos_projeto": 60}
     ]
-    # Agora assert_called_once_with funcionará, pois o campo time_spent_seconds foi removido do mock
+
     mock_convert_time.assert_called_once_with("2h")
-
-
-# --- Teste de Taxas de Desenvolvedor ---
 
 
 def test_save_developer_rates_service_success(mock_mongo_collections):
@@ -278,7 +256,7 @@ def test_save_developer_rates_service_success(mock_mongo_collections):
         {
             "id_desenvolvedor": "dev2",
             "valor_por_hora": "65",
-        },  # Testando string numérica
+        },
     ]
 
     result = save_developer_rates_service(data)
@@ -300,13 +278,12 @@ def test_save_developer_rates_service_empty_data_raises_error(mock_mongo_collect
 
 
 def test_save_developer_rates_service_invalid_data_raises_valueerror():
-    # Teste para dado faltando
+
     with pytest.raises(
         ValueError, match="Cada objeto deve ter 'id_desenvolvedor' e 'valor_por_hora'."
     ):
         save_developer_rates_service([{"id_desenvolvedor": "dev1"}])
 
-    # Teste para valor_por_hora inválido
     with pytest.raises(
         ValueError, match="O campo 'valor_por_hora' deve ser um número válido."
     ):
@@ -318,7 +295,6 @@ def test_save_developer_rates_service_invalid_data_raises_valueerror():
 def test_list_developer_rates_service_success(mock_mongo_collections):
     mock_rates = mock_mongo_collections["rates"]
 
-    # Simula o retorno do aggregate já projetado
     expected_result_from_pipeline = [
         {
             "id_desenvolvedor": "dev1",
@@ -337,13 +313,9 @@ def test_list_developer_rates_service_success(mock_mongo_collections):
     mock_aggregate.assert_called_once()
 
 
-# --- Teste de Listagem de Projetos ---
-
-
 def test_list_projects_service_success(mock_mongo_collections):
     mock_projects = mock_mongo_collections["projects"]
 
-    # Simula o retorno da agregação (que já formata o output)
     expected_projects = [
         {"id": "10000", "name": "Project Alpha"},
         {"id": "10001", "name": "Project Beta"},
@@ -357,15 +329,11 @@ def test_list_projects_service_success(mock_mongo_collections):
     mock_aggregate.assert_called_once()
 
 
-# --- Teste de Contagem de Issues e Horas ---
-
-
 def test_count_issues_by_user_and_total_hours_service_no_project_id(
     mock_mongo_collections,
 ):
     mock_projects = mock_mongo_collections["projects"]
 
-    # Simula o resultado da agregação com os campos finais
     expected_result = [
         {
             "nome": "Dev B",
@@ -389,7 +357,7 @@ def test_count_issues_by_user_and_total_hours_service_no_project_id(
 
     assert result == expected_result
     mock_aggregate.assert_called_once()
-    # CORRIGIDO: O pipeline sem $match tem 9 passos.
+
     assert len(mock_aggregate.call_args[0][0]) == 9
 
 
@@ -416,8 +384,8 @@ def test_count_issues_by_user_and_total_hours_service_with_project_id(
 
     assert result == expected_result
     mock_aggregate.assert_called_once()
-    # CORRIGIDO: O pipeline com $match tem 10 passos.
+
     pipeline = mock_aggregate.call_args[0][0]
     assert len(pipeline) == 10
-    # Verifica se o $match inicial está correto
+
     assert pipeline[0] == {"$match": {"id": project_id}}
