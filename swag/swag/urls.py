@@ -14,6 +14,7 @@ from nsnapp.views import (
     count_issues_by_user_and_total_hours,
     save_developer_rates,
     list_developer_rates,
+    list_projects,
 )
 
 
@@ -43,12 +44,13 @@ urlpatterns = [
         count_issues_grouped_by_project,
         name="count_issues_grouped_by_project",
     ),
-    path(
-        "project/count_issues_by_user_and_total_hours",
-        count_issues_by_user_and_total_hours,
-        name="count_issues_by_user_and_total_hours",
-    ),
     path("project/paginate_date", paginate_date, name="paginate_date"),
     path("users/list_users", list_users, name="list_users"),
     path("users/<str:accountId>/", list_user_by_Id, name="list_user_by_accountId"),
+    path("project/list_projects", list_projects, name="list_projects"),
+    path(
+        "project/count_issues_by_user_and_total_hours/<str:project_id>/",
+        count_issues_by_user_and_total_hours,
+        name="count_issues_by_user_and_total_hours_by_project",
+    ),
 ]

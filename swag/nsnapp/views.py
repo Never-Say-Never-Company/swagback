@@ -19,6 +19,7 @@ from .services import (
     paginate_date_service,
     save_developer_rates_service,
     list_developer_rates_service,
+    list_projects_service,
 )
 from nsnapp.utils import convert_objectid_to_str
 
@@ -185,12 +186,13 @@ def count_issues_grouped_by_project(request):
         )
 
 
-def count_issues_by_user_and_total_hours(request):
+def count_issues_by_user_and_total_hours(request, project_id=None):
     if request.method != "GET":
         return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
 
     try:
-        formatted = count_issues_by_user_and_total_hours_service()
+
+        formatted = count_issues_by_user_and_total_hours_service(project_id)
         return JsonResponse(formatted, safe=False)
 
     except Exception as e:
@@ -278,3 +280,16 @@ def list_developer_rates(request):
 
     except Exception as e:
         return JsonResponse({"error": f"Erro ao listar dados: {str(e)}"}, status=500)
+
+
+@require_http_methods(["GET"])
+def list_projects(request):
+    if request.method != "GET":
+        return JsonResponse({"error": "Método não permitido. Use GET."}, status=405)
+
+    try:
+        projects = list_projects_service()
+        return JsonResponse(projects, safe=False)
+
+    except Exception as e:
+        return JsonResponse({"error": f"Falha ao listar projetos: {e}"}, status=500)
