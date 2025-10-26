@@ -1,3 +1,4 @@
+version: '3.8'
 
 services:
   db:
@@ -24,6 +25,23 @@ services:
     env_file:
       - .env
       
+  test:
+    build: .
+    container_name: django_test
+    command: pytest nsnapp/tests/ 
+    
+    volumes:
+      - .:/code
+      - ~/.aws:/root/.aws:ro
 
+    environment:
+      MONGO_PATH: mongodb://db:27017/swag_test_db 
+      AWS_REGION: "us-east-2" 
+
+    depends_on:
+      - db
+    env_file:
+      - .env
+      
 volumes:
   mongodb_data:
