@@ -313,72 +313,85 @@ def count_issues_grouped_by_project_service():
     ]
 
 
-def count_issues_by_user_and_total_hours_service():
+def count_issues_by_user_and_total_hours_service(project_id=None):
     """
-    Calcula o total de issues, horas trabalhadas e o CUSTO TOTAL (Horas * Taxa)
-    por desenvolvedor, AGRUPANDO PELO NOME e buscando a taxa via accountId na coleção users.
-    Retorna NULL para valor_por_hora e custo_total se a taxa não for encontrada.
+    Calcula o total de issues, horas trabalhadas e o CUSTO TOTAL por desenvolvedor.
+    Pode ser filtrado por project_id (ID do projeto).
     """
-    pipeline = [
-        {"$unwind": "$issues"},
-        {"$unwind": "$issues.author_logs"},
-        {
-            "$group": {
-                "_id": "$issues.author_logs.display_name",
-                "issue_count": {"$sum": 1},
-                "total_time_spent_minutes": {
-                    "$sum": {"$divide": ["$issues.author_logs.time_spent_seconds", 60]}
-                },
-            }
-        },
-        {
-            "$lookup": {
-                "from": "users",
-                "localField": "_id",
-                "foreignField": "displayName",
-                "as": "user_details",
-            }
-        },
-        {"$unwind": {"path": "$user_details", "preserveNullAndEmptyArrays": True}},
-        {
-            "$lookup": {
-                "from": "developer_rates",
-                "localField": "user_details.accountId",
-                "foreignField": "id_desenvolvedor",
-                "as": "rate_info",
-            }
-        },
-        {"$unwind": {"path": "$rate_info", "preserveNullAndEmptyArrays": True}},
-        {
-            "$project": {
-                "_id": 0,
-                "nome": "$_id",
-                "quantidade_issues": "$issue_count",
-                "total_horas": {
-                    "$round": [{"$divide": ["$total_time_spent_minutes", 60]}, 2]
-                },
-                "valor_por_hora": {"$ifNull": ["$rate_info.valor_por_hora", None]},
-                "custo_total": {
-                    "$let": {
-                        "vars": {
-                            "horas": {"$divide": ["$total_time_spent_minutes", 60]},
-                            "taxa": {"$ifNull": ["$rate_info.valor_por_hora", None]},
-                        },
-                        "in": {
-                            "$cond": {
-                                "if": {"$eq": ["$$taxa", None]},
-                                "then": None,
-                                "else": {
-                                    "$round": [{"$multiply": ["$$horas", "$$taxa"]}, 2]
+    pipeline = []
+
+    if project_id:
+        pipeline.append({"$match": {"id": project_id}})
+
+    pipeline.extend(
+        [
+            {"$unwind": "$issues"},
+            {"$unwind": "$issues.author_logs"},
+            {
+                "$group": {
+                    "_id": "$issues.author_logs.display_name",
+                    "issue_count": {"$sum": 1},
+                    "total_time_spent_minutes": {
+                        "$sum": {
+                            "$divide": ["$issues.author_logs.time_spent_seconds", 60]
+                        }
+                    },
+                }
+            },
+            {
+                "$lookup": {
+                    "from": "users",
+                    "localField": "_id",
+                    "foreignField": "displayName",
+                    "as": "user_details",
+                }
+            },
+            {"$unwind": {"path": "$user_details", "preserveNullAndEmptyArrays": True}},
+            {
+                "$lookup": {
+                    "from": "developer_rates",
+                    "localField": "user_details.accountId",
+                    "foreignField": "id_desenvolvedor",
+                    "as": "rate_info",
+                }
+            },
+            {"$unwind": {"path": "$rate_info", "preserveNullAndEmptyArrays": True}},
+            {
+                "$project": {
+                    "_id": 0,
+                    "nome": "$_id",
+                    "quantidade_issues": "$issue_count",
+                    "total_horas": {
+                        "$round": [{"$divide": ["$total_time_spent_minutes", 60]}, 2]
+                    },
+                    "valor_por_hora": {"$ifNull": ["$rate_info.valor_por_hora", None]},
+                    "custo_total": {
+                        "$let": {
+                            "vars": {
+                                "horas": {"$divide": ["$total_time_spent_minutes", 60]},
+                                "taxa": {
+                                    "$ifNull": ["$rate_info.valor_por_hora", None]
                                 },
-                            }
-                        },
-                    }
-                },
-            }
-        },
-        {"$sort": {"custo_total": -1}},
-    ]
+                            },
+                            "in": {
+                                "$cond": {
+                                    "if": {"$eq": ["$$taxa", None]},
+                                    "then": None,
+                                    "else": {
+                                        "$round": [
+                                            {"$multiply": ["$$horas", "$$taxa"]},
+                                            2,
+                                        ]
+                                    },
+                                }
+                            },
+                        }
+                    },
+                }
+            },
+            {"$sort": {"custo_total": -1}},
+        ]
+    )
 
     results = list(project_collections.aggregate(pipeline))
     return results
@@ -491,3 +504,29 @@ def list_developer_rates_service() -> list:
     rates_list = list(developer_rates_collection.aggregate(pipeline))
 
     return rates_list
+
+
+def list_projects_service() -> list:
+    """
+    Lista todos os projetos disponíveis, retornando apenas o ID e o Nome.
+    Usa agregação para garantir a unicidade.
+    """
+    pipeline = [
+        {
+            "$group": {
+                "_id": "$id",
+                "name": {"$first": "$name"},
+            }
+        },
+        {
+            "$project": {
+                "_id": 0,
+                "id": "$_id",
+                "name": 1,
+            }
+        },
+        {"$sort": {"name": 1}},
+    ]
+
+    projects = list(project_collections.aggregate(pipeline))
+    return projects
