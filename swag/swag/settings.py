@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from nsnapp.utils import get_secret
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -100,3 +101,8 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+API_USER_NAME = get_secret('login_jira', 'us-east-2').get('login_jira')
+API_TOKEN = get_secret('token-api-jira', 'us-east-2').get('api_jira_key')
+print("API_USER_NAME:", API_USER_NAME)
+print("API_TOKEN:", API_TOKEN)
